@@ -32,6 +32,7 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PointF;
 import android.graphics.Rect;
@@ -41,10 +42,12 @@ import android.util.Log;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import com.android.launcher3.BubbleTextView;
 import com.android.launcher3.LauncherAppState;
+import com.android.launcher3.LauncherSettings;
 import com.android.launcher3.Utilities;
 import com.android.launcher3.apppairs.AppPairIcon;
 import com.android.launcher3.apppairs.AppPairIconDrawingParams;
@@ -54,6 +57,7 @@ import com.android.launcher3.model.data.ItemInfo;
 import com.android.launcher3.model.data.ItemInfoWithIcon;
 import com.android.launcher3.model.data.WorkspaceItemInfo;
 import com.android.launcher3.graphics.ThemeManager;
+import com.android.launcher3.util.Themes;
 import com.android.launcher3.views.ActivityContext;
 
 import java.util.ArrayList;
@@ -91,6 +95,7 @@ public class PreviewItemManager {
     private float mIntrinsicIconSize = -1;
     private int mTotalWidth = -1;
     private int mPrevTopPadding = -1;
+    private int mPrevFolderStyle = -1;
     private Drawable mReferenceDrawable = null;
 
     private int mNumOfPrevItems = 0;
@@ -106,6 +111,7 @@ public class PreviewItemManager {
     private final float mClipThreshold;
     private float mCurrentPageItemsTransX = 0;
     private boolean mShouldSlideInFirstPage;
+    private final Paint mIndicatorPaint;
 
     static final int INITIAL_ITEM_ANIMATION_DURATION = 350;
     private static final int FINAL_ITEM_ANIMATION_DURATION = 200;
@@ -120,6 +126,44 @@ public class PreviewItemManager {
         mIconSize = ActivityContext.lookupContext(
                 mContext).getDeviceProfile().getFolderProfile().getChildIconSizePx();
         mClipThreshold = dpToPx(1f);
+        mIndicatorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    }
+
+    public ItemInfo getItemAtPosition(float x, float y) {
+        PreviewItemDrawingParams params = findVisibleItemParamsAtPosition(x, y);
+        return params == null ? null : params.item;
+    }
+
+    @Nullable
+    public ItemInfo getVisibleItem(Predicate<ItemInfo> matcher) {
+        PreviewItemDrawingParams params = findVisibleItemParams(matcher);
+        return params == null ? null : params.item;
+    }
+
+    public boolean isItemInPreview(ItemInfo item) {
+        return findVisibleItemParams(candidate -> candidate == item) != null;
+    }
+
+    public boolean getPreviewItemBounds(ItemInfo item, Rect outBounds) {
+        PreviewItemDrawingParams params = findVisibleItemParams(candidate -> candidate == item);
+        if (params == null) {
+            outBounds.setEmpty();
+            return false;
+        }
+        return getBoundsForParams(params, outBounds);
+    }
+
+    public boolean setItemHidden(ItemInfo item, boolean hidden) {
+        PreviewItemDrawingParams params = findItemParams(candidate -> candidate == item,
+                true /* includeHidden */);
+        if (params == null) {
+            return false;
+        }
+        if (params.hidden != hidden) {
+            params.hidden = hidden;
+            onParamsChanged();
+        }
+        return true;
     }
 
     /**
@@ -128,6 +172,12 @@ public class PreviewItemManager {
      */
     public FolderPreviewItemAnim createFirstItemAnimation(final boolean reverse,
             final Runnable onCompleteRunnable) {
+        if (mFirstPageParams.isEmpty()) {
+            if (onCompleteRunnable != null) {
+                onCompleteRunnable.run();
+            }
+            return null;
+        }
         return reverse
                 ? new FolderPreviewItemAnim(this, mFirstPageParams.get(0), 0, 2, -1, -1,
                 FINAL_ITEM_ANIMATION_DURATION, onCompleteRunnable)
@@ -153,15 +203,27 @@ public class PreviewItemManager {
     }
 
     private void computePreviewDrawingParams(int drawableSize, int totalSize) {
+        int folderStyle = mIcon.getFolderStyle();
         if (mIntrinsicIconSize != drawableSize || mTotalWidth != totalSize ||
-                mPrevTopPadding != mIcon.getPaddingTop()) {
+                mPrevTopPadding != mIcon.getPaddingTop() || mPrevFolderStyle != folderStyle) {
             mIntrinsicIconSize = drawableSize;
             mTotalWidth = totalSize;
             mPrevTopPadding = mIcon.getPaddingTop();
+            mPrevFolderStyle = folderStyle;
 
             mIcon.mBackground.setup(mIcon.getContext(), mIcon.mActivity, mIcon, mTotalWidth,
                     mIcon.getPaddingTop());
             mIcon.mPreviewLayoutRule.init(
+                    mIcon.mBackground.previewSize, mIntrinsicIconSize,
+                    Utilities.isRtl(mIcon.getResources()),
+                    mIcon.mActivity.getDeviceProfile().getFolderProfile().getNumColumns()
+            );
+            mIcon.mGridLayoutRule.init(
+                    mIcon.mBackground.previewSize, mIntrinsicIconSize,
+                    Utilities.isRtl(mIcon.getResources()),
+                    mIcon.mActivity.getDeviceProfile().getFolderProfile().getNumColumns()
+            );
+            mIcon.mCircleLayoutRule.init(
                     mIcon.mBackground.previewSize, mIntrinsicIconSize,
                     Utilities.isRtl(mIcon.getResources()),
                     mIcon.mActivity.getDeviceProfile().getFolderProfile().getNumColumns()
@@ -177,7 +239,15 @@ public class PreviewItemManager {
         if (index == -1) {
             return getFinalIconParams(params);
         }
-        return mIcon.mPreviewLayoutRule.computePreviewItemDrawingParams(index, curNumItems, params);
+        int style = mIcon.getFolderStyle();
+        switch (style) {
+            case LauncherSettings.Favorites.FOLDER_STYLE_GRID:
+                return mIcon.mGridLayoutRule.computePreviewItemDrawingParams(index, curNumItems, params);
+            case LauncherSettings.Favorites.FOLDER_STYLE_CIRCLE:
+                return mIcon.mCircleLayoutRule.computePreviewItemDrawingParams(index, curNumItems, params);
+            default:
+                return mIcon.mPreviewLayoutRule.computePreviewItemDrawingParams(index, curNumItems, params);
+        }
     }
 
     private PreviewItemDrawingParams getFinalIconParams(PreviewItemDrawingParams params) {
@@ -190,15 +260,29 @@ public class PreviewItemManager {
         return params;
     }
 
+    private final PreviewItemDrawingParams mSynthesizedDotParams = new PreviewItemDrawingParams(0, 0, 0);
+
     public void drawParams(Canvas canvas, ArrayList<PreviewItemDrawingParams> params,
             PointF offset, boolean shouldClipPath, Path clipPath) {
+        int indicatorIndex = getIndicatorIndex();
+
+        if (mIcon.getFolderStyle() == LauncherSettings.Favorites.FOLDER_STYLE_CIRCLE
+                && indicatorIndex == 6 && params.size() == 6) {
+            computePreviewItemDrawingParams(6, 7, mSynthesizedDotParams);
+            drawIndicatorDots(canvas, mSynthesizedDotParams, offset);
+        }
+
         // The first item should be drawn last (ie. on top of later items)
         for (int i = params.size() - 1; i >= 0; i--) {
             PreviewItemDrawingParams p = params.get(i);
             if (!p.hidden) {
                 // Exiting param should always be clipped.
                 boolean isExiting = p.index == EXIT_INDEX;
-                drawPreviewItem(canvas, p, offset, isExiting | shouldClipPath, clipPath);
+                if (indicatorIndex >= 0 && p.index == indicatorIndex) {
+                    drawIndicatorDots(canvas, p, offset);
+                } else {
+                    drawPreviewItem(canvas, p, offset, isExiting | shouldClipPath, clipPath);
+                }
             }
         }
     }
@@ -259,6 +343,164 @@ public class PreviewItemManager {
         canvas.restore();
     }
 
+    private void drawIndicatorDots(Canvas canvas, PreviewItemDrawingParams params, PointF offset) {
+        int style = mIcon.getFolderStyle();
+
+        if (style == LauncherSettings.Favorites.FOLDER_STYLE_QUADRANT) {
+            drawQuadrantMiniIcons(canvas, params, offset);
+        } else {
+            drawDotsIndicator(canvas, params, offset);
+        }
+    }
+
+    private void drawQuadrantMiniIcons(Canvas canvas, PreviewItemDrawingParams params, PointF offset) {
+        canvas.save();
+        canvas.translate(offset.x + params.transX, offset.y + params.transY);
+        canvas.scale(params.scale, params.scale);
+
+        float iconSize = mIntrinsicIconSize;
+        float miniIconSize = iconSize * 0.42f;
+        float spacing = iconSize * 0.08f;
+        float startX = (iconSize - 2 * miniIconSize - spacing) / 2f;
+        float startY = startX;
+
+        List<ItemInfo> items = mIcon.mInfo.getContents();
+        int startIndex = 3;
+
+        int drawn = 0;
+        for (int itemIdx = startIndex; itemIdx < items.size() && drawn < 4; itemIdx++) {
+            ItemInfo item = items.get(itemIdx);
+            Drawable icon = null;
+            if (item instanceof ItemInfoWithIcon) {
+                icon = ((ItemInfoWithIcon) item).newIcon(mContext, FLAG_THEMED);
+            }
+
+            if (icon == null) {
+                continue;
+            }
+
+            int row = drawn / 2;
+            int col = drawn % 2;
+            float x = startX + col * (miniIconSize + spacing);
+            float y = startY + row * (miniIconSize + spacing);
+
+            canvas.save();
+            canvas.translate(x, y);
+            icon.setBounds(0, 0, (int) miniIconSize, (int) miniIconSize);
+            icon.draw(canvas);
+            canvas.restore();
+            drawn++;
+        }
+
+        canvas.restore();
+    }
+
+    private void drawDotsIndicator(Canvas canvas, PreviewItemDrawingParams params, PointF offset) {
+        canvas.save();
+        canvas.translate(offset.x + params.transX, offset.y + params.transY);
+        canvas.scale(params.scale, params.scale);
+
+        float iconSize = mIntrinsicIconSize;
+        float dotRadius = iconSize * 0.05f;
+        float spacing = iconSize * 0.12f;
+        float centerX = iconSize / 2f;
+        float centerY = iconSize / 2f;
+
+        mIndicatorPaint.setColor(Themes.getColorAccent(mContext));
+
+        canvas.drawCircle(centerX - spacing, centerY - spacing, dotRadius, mIndicatorPaint);
+        canvas.drawCircle(centerX + spacing, centerY - spacing, dotRadius, mIndicatorPaint);
+        canvas.drawCircle(centerX - spacing, centerY + spacing, dotRadius, mIndicatorPaint);
+        canvas.drawCircle(centerX + spacing, centerY + spacing, dotRadius, mIndicatorPaint);
+
+        canvas.restore();
+    }
+
+    private int getIndicatorIndex() {
+        int style = mIcon.getFolderStyle();
+        if (style == LauncherSettings.Favorites.FOLDER_STYLE_QUADRANT) {
+            return ClippedFolderIconLayoutRule.MAX_NUM_ITEMS_IN_PREVIEW - 1;
+        } else if (style == LauncherSettings.Favorites.FOLDER_STYLE_GRID) {
+            return GridFolderLayoutRule.MAX_NUM_ITEMS_IN_PREVIEW - 1;
+        } else if (style == LauncherSettings.Favorites.FOLDER_STYLE_CIRCLE) {
+            return 6;
+        }
+        return -1;
+    }
+
+    @Nullable
+    private PreviewItemDrawingParams findVisibleItemParamsAtPosition(float x, float y) {
+        recomputePreviewDrawingParams();
+
+        Rect bounds = new Rect();
+        int indicatorIndex = getIndicatorIndex();
+        int totalItems = mIcon.mInfo.getContents().size();
+
+        for (int i = 0; i < mFirstPageParams.size(); i++) {
+            PreviewItemDrawingParams params = mFirstPageParams.get(i);
+            if (!shouldIncludeInPreviewLookup(params, indicatorIndex, totalItems,
+                    false /* includeHidden */)
+                    || !getBoundsForParams(params, bounds)) {
+                continue;
+            }
+
+            if (bounds.contains(Math.round(x), Math.round(y))) {
+                return params;
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private PreviewItemDrawingParams findVisibleItemParams(Predicate<ItemInfo> matcher) {
+        return findItemParams(matcher, false /* includeHidden */);
+    }
+
+    private boolean shouldIncludeInPreviewLookup(PreviewItemDrawingParams params,
+            int indicatorIndex, int totalItems, boolean includeHidden) {
+        if (params.item == null) {
+            return false;
+        }
+        if (!includeHidden && params.hidden) {
+            return false;
+        }
+        return !(indicatorIndex >= 0 && totalItems > indicatorIndex
+                && params.index >= indicatorIndex);
+    }
+
+    @Nullable
+    private PreviewItemDrawingParams findItemParams(Predicate<ItemInfo> matcher,
+            boolean includeHidden) {
+        recomputePreviewDrawingParams();
+
+        int indicatorIndex = getIndicatorIndex();
+        int totalItems = mIcon.mInfo.getContents().size();
+
+        for (int i = 0; i < mFirstPageParams.size(); i++) {
+            PreviewItemDrawingParams params = mFirstPageParams.get(i);
+            if (!shouldIncludeInPreviewLookup(params, indicatorIndex, totalItems, includeHidden)) {
+                continue;
+            }
+            if (matcher.test(params.item)) {
+                return params;
+            }
+        }
+        return null;
+    }
+
+    private boolean getBoundsForParams(PreviewItemDrawingParams params, Rect outBounds) {
+        if (mIntrinsicIconSize <= 0) {
+            outBounds.setEmpty();
+            return false;
+        }
+
+        int left = Math.round(mIcon.mBackground.basePreviewOffsetX + params.transX);
+        int top = Math.round(mIcon.mBackground.basePreviewOffsetY + params.transY);
+        int size = Math.round(mIntrinsicIconSize * params.scale);
+        outBounds.set(left, top, left + size, top + size);
+        return size > 0;
+    }
+
     public void hidePreviewItem(int index, boolean hidden) {
         // If there are more params than visible in the preview, they are used for enter/exit
         // animation purposes and they were added to the front of the list.
@@ -286,6 +528,7 @@ public class PreviewItemManager {
         int numItemsInFirstPagePreview = page == 0 ? items.size() : MAX_NUM_ITEMS_IN_PREVIEW;
         for (int i = 0; i < params.size(); i++) {
             PreviewItemDrawingParams p = params.get(i);
+            p.index = i;
             setDrawable(p, items.get(i));
 
             if (!animate) {
@@ -310,6 +553,17 @@ public class PreviewItemManager {
                 }
                 p.anim = anim;
                 p.anim.start();
+            }
+        }
+
+        // Ensure that the reference drawable is set, even if the folder has no items in the
+        // preview
+        if (mReferenceDrawable == null) {
+            List<ItemInfo> allItems = mIcon.mInfo.getContents();
+            if (!allItems.isEmpty()) {
+                PreviewItemDrawingParams dummyParams = new PreviewItemDrawingParams(0, 0, 0);
+                setDrawable(dummyParams, allItems.get(0));
+                mReferenceDrawable = dummyParams.drawable;
             }
         }
     }
@@ -451,27 +705,40 @@ public class PreviewItemManager {
         setDrawableInternal(p, item, true /* loadHighResIcon */);
     }
 
-    private void setDrawableInternal(
-            PreviewItemDrawingParams p, ItemInfo item, boolean loadHighResIcon) {
+    public @Nullable Drawable createDrawableForItem(ItemInfo item) {
         if (item instanceof WorkspaceItemInfo wii) {
             if (wii.shouldShowPendingIcon()) {
-                p.drawable = newPendingIcon(wii, mContext, FLAG_THEMED);
+                Drawable drawable = newPendingIcon(wii, mContext, FLAG_THEMED);
+                drawable.setBounds(0, 0, mIconSize, mIconSize);
+                return drawable;
             } else {
-                p.drawable = wii.newIcon(mContext, FLAG_THEMED);
+                Drawable drawable = wii.newIcon(mContext, FLAG_THEMED);
+                drawable.setBounds(0, 0, mIconSize, mIconSize);
+                return drawable;
             }
-            p.drawable.setBounds(0, 0, mIconSize, mIconSize);
         } else if (item instanceof AppPairInfo api) {
             AppPairIconDrawingParams appPairParams =
                     new AppPairIconDrawingParams(mContext, DISPLAY_FOLDER);
-            p.drawable = AppPairIconGraphic.composeDrawable(api, appPairParams);
-            p.drawable.setBounds(0, 0, mIconSize, mIconSize);
+            Drawable drawable = AppPairIconGraphic.composeDrawable(api, appPairParams);
+            drawable.setBounds(0, 0, mIconSize, mIconSize);
+            return drawable;
         } else if (item instanceof ItemInfoWithIcon withIcon) {
-            p.drawable = withIcon.newIcon(mContext,
+            Drawable drawable = withIcon.newIcon(mContext,
                     ThemeManager.INSTANCE.get(mContext).isIconThemeEnabled() ? FLAG_THEMED : 0);
-            p.drawable.setBounds(0, 0, mIconSize, mIconSize);
+            drawable.setBounds(0, 0, mIconSize, mIconSize);
+            return drawable;
         }
+        return null;
+    }
+
+    private void setDrawableInternal(
+            PreviewItemDrawingParams p, ItemInfo item, boolean loadHighResIcon) {
+        p.drawable = createDrawableForItem(item);
 
         p.item = item;
+        if (p.drawable == null) {
+            return;
+        }
         // Set the callback to FolderIcon as it is responsible to drawing the icon. The
         // callback will be released when the folder is opened.
         p.drawable.setCallback(mIcon);

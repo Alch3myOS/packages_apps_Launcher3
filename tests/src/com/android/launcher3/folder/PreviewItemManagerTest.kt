@@ -18,8 +18,10 @@ package com.android.launcher3.folder
 
 import android.R
 import android.content.ComponentName
+import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.os.Process
+import android.view.View
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import com.android.dx.mockito.inline.extended.ExtendedMockito.spyOn
@@ -290,6 +292,101 @@ class PreviewItemManagerTest {
         callbackCaptor.firstValue.reapplyItemInfo(folderItems[3])
         // Verify that no new update calls are made, if the cache returns the same low-res icon
         verify(iconCache, never()).updateIconInBackground(any(), any(), any())
+    }
+
+    @Test
+    fun `preview item bounds round trip to hit testing`() {
+        initializePreviewLayout()
+
+        val bounds = Rect()
+
+        assertThat(previewItemManager.getPreviewItemBounds(folderItems[0], bounds)).isTrue()
+        assertThat(
+                previewItemManager.getItemAtPosition(
+                    bounds.exactCenterX(),
+                    bounds.exactCenterY(),
+                )
+            )
+            .isSameInstanceAs(folderItems[0])
+    }
+
+    @Test
+    fun `overflow preview items are not exposed as direct animation targets`() {
+        val overflowItem = buildWorkspaceItemInfo(TEST_ACTIVITY)
+        folderIcon.mInfo.add(overflowItem)
+        initializePreviewLayout()
+
+        val bounds = Rect()
+
+        assertThat(previewItemManager.getPreviewItemBounds(overflowItem, bounds)).isFalse()
+        assertThat(previewItemManager.getVisibleItem { it === overflowItem }).isNull()
+    }
+
+    @Test
+    fun `hidden preview item is removed from hit testing`() {
+        initializePreviewLayout()
+
+        val bounds = Rect()
+        assertThat(previewItemManager.getPreviewItemBounds(folderItems[0], bounds)).isTrue()
+
+        assertThat(previewItemManager.setItemHidden(folderItems[0], true)).isTrue()
+        assertThat(
+                previewItemManager.getItemAtPosition(
+                    bounds.exactCenterX(),
+                    bounds.exactCenterY(),
+                )
+            )
+            .isNull()
+
+        assertThat(previewItemManager.setItemHidden(folderItems[0], false)).isTrue()
+        assertThat(
+                previewItemManager.getItemAtPosition(
+                    bounds.exactCenterX(),
+                    bounds.exactCenterY(),
+                )
+            )
+            .isSameInstanceAs(folderItems[0])
+    }
+
+    @Test
+    fun `folder preview launch visibility cycle restores hidden item`() {
+        initializePreviewLayout()
+
+        val bounds = Rect()
+        assertThat(previewItemManager.getPreviewItemBounds(folderItems[0], bounds)).isTrue()
+
+        folderIcon.setPreviewItemForAnimation(folderItems[0])
+        folderIcon.setIconVisible(false)
+        assertThat(
+                previewItemManager.getItemAtPosition(
+                    bounds.exactCenterX(),
+                    bounds.exactCenterY(),
+                )
+            )
+            .isNull()
+
+        folderIcon.setIconVisible(true)
+        assertThat(folderIcon.previewItemForAnimation).isNull()
+        assertThat(
+                previewItemManager.getItemAtPosition(
+                    bounds.exactCenterX(),
+                    bounds.exactCenterY(),
+                )
+            )
+            .isSameInstanceAs(folderItems[0])
+    }
+
+    private fun initializePreviewLayout(width: Int = 200, height: Int = 200) {
+        folderIcon.mActivity = uiContext
+        folderIcon.mPreviewVerifier =
+            FolderGridOrganizer.createFolderGridOrganizer(uiContext.deviceProfile)
+                .setFolderInfo(folderIcon.mInfo)
+        folderIcon.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        folderIcon.layout(0, 0, width, height)
+        folderIcon.onItemsChanged(false)
     }
 
     private fun profileFlagOp(type: Int) =

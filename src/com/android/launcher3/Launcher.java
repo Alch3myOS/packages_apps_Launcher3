@@ -99,7 +99,10 @@ import static com.android.launcher3.pageindicators.PaginationArrow.DISABLED_ARRO
 import static com.android.launcher3.pageindicators.PaginationArrow.FULLY_OPAQUE;
 import static com.android.launcher3.popup.SystemShortcut.ADD_TO_HOME_SCREEN;
 import static com.android.launcher3.popup.SystemShortcut.APP_INFO;
+import static com.android.launcher3.popup.SystemShortcut.CUSTOMIZE_FOLDER;
+import static com.android.launcher3.popup.SystemShortcut.ENLARGE;
 import static com.android.launcher3.popup.SystemShortcut.INSTALL;
+import static com.android.launcher3.popup.SystemShortcut.MINIMIZE;
 import static com.android.launcher3.popup.SystemShortcut.REMOVE;
 import static com.android.launcher3.popup.SystemShortcut.RENAME_APP;
 import static com.android.launcher3.popup.SystemShortcut.UNINSTALL;
@@ -2024,6 +2027,25 @@ public class Launcher extends StatefulActivity<LauncherState>
         return newFolder;
     }
 
+    public FolderIcon addFolder(CellLayout layout, int container, final int screenId, int cellX,
+            int cellY, int spanX, int spanY) {
+        final FolderInfo folderInfo = new FolderInfo();
+        folderInfo.spanX = spanX;
+        folderInfo.spanY = spanY;
+
+        getModelWriter().addItemToDatabase(folderInfo, container, screenId, cellX, cellY);
+
+        FolderIcon newFolder = (FolderIcon) mItemInflater.inflateItem(folderInfo, layout);
+        mWorkspace.addInScreen(newFolder, folderInfo);
+        CellLayout parent = mWorkspace.getParentCellLayoutForView(newFolder);
+        if (parent != null) {
+            parent.getShortcutsAndWidgets().measureChild(newFolder);
+            newFolder.requestLayout();
+            parent.requestLayout();
+        }
+        return newFolder;
+    }
+
     @Override
     public Rect getFolderBoundingBox() {
         // We need to bound the folder to the currently visible workspace area
@@ -2464,9 +2486,16 @@ public class Launcher extends StatefulActivity<LauncherState>
                 op -> mapOverCellLayouts(containerArray, op);
 
         // Order: Preferred item by itself or in folder, then by matching package/user
-        return visibleContainer.getFirstMatch(
+        View matchingView = visibleContainer.getFirstMatch(
                 preferredItem, forFolderMatch(preferredItem),
                 packageAndUserAndApp, forFolderMatch(packageAndUserAndApp));
+        if (matchingView instanceof FolderIcon folderIcon) {
+            folderIcon.clearPreviewItemForAnimation();
+            if (!folderIcon.setPreviewItemForAnimation(preferredItem)) {
+                folderIcon.setPreviewItemForAnimation(packageAndUserAndApp);
+            }
+        }
+        return matchingView;
     }
 
     private ValueAnimator createNewAppBounceAnimation(View v, int i) {
@@ -3074,8 +3103,12 @@ public class Launcher extends StatefulActivity<LauncherState>
      */
     public Stream<SystemShortcut.Factory> getSupportedShortcuts(ItemInfo itemInfo) {
         int container = itemInfo.container;
-        if (container == CONTAINER_DESKTOP || container == CONTAINER_HOTSEAT) {
-            return Stream.of(APP_INFO, RENAME_APP, WIDGETS, INSTALL, REMOVE, UNINSTALL);
+        if (container == CONTAINER_DESKTOP) {
+            return Stream.of(APP_INFO, RENAME_APP, WIDGETS, INSTALL, REMOVE, UNINSTALL,
+                    ENLARGE, MINIMIZE, CUSTOMIZE_FOLDER);
+        } else if (container == CONTAINER_HOTSEAT) {
+            return Stream.of(APP_INFO, RENAME_APP, WIDGETS, INSTALL, REMOVE, UNINSTALL,
+                    CUSTOMIZE_FOLDER);
         } else if (container == CONTAINER_ALL_APPS || container == CONTAINER_ALL_APPS_PREDICTION) {
             // TODO(b/444744861): Update private space apps to have its own container.
             boolean isPinnable = itemInfo instanceof ItemInfoWithIcon info
