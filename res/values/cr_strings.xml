@@ -17,7 +17,7 @@
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
 
     <!-- Application name -->
-    <string name="crdroid_app_name" translatable="false">Lunaris Launcher</string>
+    <string name="crdroid_app_name" translatable="false">Alch3my Altar</string>
 
     <!-- Folder titles -->
     <string name="google_folder_title" translatable="false">Google</string>
@@ -377,12 +377,12 @@
         <item>Oh hey, what\'s good?</item>
         <item>Welcome to real Matrix!</item>
         <item>The number of screenshots you take is sending me.</item>
-        <item>Open goodness with Lunaris</item>
+        <item>Open goodness with Alch3my</item>
         <item>Spread love, not havoc</item>
         <item>We didn\'t start the fire!</item>
         <item>Time for some good music</item>
         <item>\u003C\u003C\u003C\u003C\u003C\u003C\u003C HEAD</item>
-        <item>You need Lunaris Premium to see this</item>
+        <item>You need Alch3my Premium to see this</item>
         <item>Remember the Lineage of the Unicorn</item>
         <item>Enjoy Xtended battery life</item>
         <item>Starting from the ground zero</item>
