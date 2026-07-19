@@ -307,7 +307,7 @@ public class OptionsPopupView<T extends Context & ActivityContext> extends Arrow
         Launcher launcher = Launcher.getLauncher(v.getContext());
         Intent intent = new Intent(Intent.ACTION_MAIN);
         intent.setComponent(new ComponentName(
-                "com.app.nosatmosphereeffect",
+                "com.saad_khan_rind.atmosphere_effect",
                 "com.app.nosatmosphereeffect.MainActivity"));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         return launcher.startActivitySafely(v, intent, placeholderInfo(intent)) != null;
