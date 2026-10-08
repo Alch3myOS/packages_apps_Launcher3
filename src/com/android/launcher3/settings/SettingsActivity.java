@@ -40,7 +40,7 @@ import androidx.preference.PreferenceGroup.PreferencePositionCallback;
 import androidx.preference.PreferenceScreen;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.android.crdroid.utils.IconTinterUtils;
+import com.android.alch3my.utils.IconTinterUtils;
 
 import com.android.launcher3.LauncherFiles;
 import com.android.launcher3.R;
