@@ -37,6 +37,12 @@
         settings:units="px"
         android:defaultValue="30" />
 
+    <SwitchPreferenceCompat
+        android:key="pref_launcher_menu_style"
+        android:title="@string/launcher_menu_style_title"
+        android:summary="@string/launcher_menu_style_summary"
+        android:defaultValue="false" />
+
     <com.android.launcher3.settings.preference.RestartPreference
         android:key="pref_restart"
         android:title="@string/pref_restart_title"

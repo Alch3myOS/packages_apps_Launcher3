@@ -185,7 +185,19 @@ public class SettingsActivity extends CollapsingToolbarBaseActivity
                 getActivity().setTitle(getPreferenceScreen().getTitle());
             }
 
-            IconTinterUtils.tintIcons(getPreferenceScreen(), getContext());
+            // When the launcher follows the phone-wide Settings style, its own styler colours the
+            // icons; otherwise the stock icon tinter does.
+            if (!LauncherMenuStyler.isEnabled(getContext())) {
+                IconTinterUtils.tintIcons(getPreferenceScreen(), getContext());
+            }
+        }
+
+        @Override
+        public RecyclerView onCreateRecyclerView(android.view.LayoutInflater inflater,
+                android.view.ViewGroup parent, Bundle savedInstanceState) {
+            RecyclerView list = super.onCreateRecyclerView(inflater, parent, savedInstanceState);
+            LauncherMenuStyler.attach(list, getContext());
+            return list;
         }
 
         private boolean isKeyInPreferenceGroup(String targetKey, PreferenceGroup parent) {

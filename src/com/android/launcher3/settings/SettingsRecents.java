@@ -174,6 +174,14 @@ public class SettingsRecents extends CollapsingToolbarBaseActivity
         }
 
         @Override
+        public RecyclerView onCreateRecyclerView(android.view.LayoutInflater inflater,
+                android.view.ViewGroup parent, Bundle savedInstanceState) {
+            RecyclerView list = super.onCreateRecyclerView(inflater, parent, savedInstanceState);
+            LauncherMenuStyler.attach(list, getContext());
+            return list;
+        }
+
+        @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             final Bundle args = getArguments();
             mHighLightKey = args == null ? null : args.getString(EXTRA_FRAGMENT_HIGHLIGHT_KEY);
